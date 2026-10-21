@@ -72,7 +72,8 @@ export async function openLead(leadId, symbol, side, usd, chatId) {
   const o = await marketOrder(lead, symbol, side, size);
   if (!(Number(o.filled) > 0)) return { ok: false, order: o };
   const id = crypto.randomUUID().slice(0, 8);
-  get().trades[id] = { id, leadId: String(leadId), chatId, symbol, side, size: o.filled, markAtOpen: px, openedAt: Date.now(), status: 'open', order: o };
+  const fill = await fillPrice(keyOf(lead), symbol, o.orderId).catch(() => null); // the card shows the real fill when Strike has it
+  get().trades[id] = { id, leadId: String(leadId), chatId, symbol, side, size: o.filled, markAtOpen: px, fillPrice: fill, openedAt: Date.now(), status: 'open', order: o };
   save();
   return { ok: true, trade: get().trades[id] };
 }

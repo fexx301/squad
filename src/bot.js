@@ -28,9 +28,9 @@ const sideWord = (t) => (t.side === 'buy' ? 'long' : 'short');
 // their Builder field, so the card states the code the order was sent with.
 function card(t, lead) {
   return `${lead} opened ${sideWord(t).toUpperCase()} ${t.symbol}\n` +
-    `${qty(t.size)} ${t.symbol.replace('-USD', '')} · ~${usdOf(Number(t.size) * t.markAtOpen)} at ${Number(t.markAtOpen).toFixed(2)}\n` +
+    `${qty(t.size)} ${t.symbol.replace('-USD', '')} · ~${usdOf(Number(t.size) * (t.fillPrice ?? t.markAtOpen))} · ${t.fillPrice ? `filled at ${t.fillPrice.toFixed(2)}` : `mark ${Number(t.markAtOpen).toFixed(2)}`}\n` +
     `Strike order #${t.order.orderId} · builder ${process.env.BUILDER_CODE} (${process.env.BUILDER_FEE_BPS ?? 10} bps)\n` +
-    `Every copy gets a ${stopPct()}% stop: max loss ≈ ${usdOf(25 * stopPct() / 100)} per $25 copied (fees extra; /stop to change yours).\n` +
+    `Every copy gets a ${stopPct()}% stop order: ≈ ${usdOf(25 * stopPct() / 100)} per $25 at the stop price; fills can slip, fees extra (/stop to change yours).\n` +
     `Copy this one trade at your own size. Card valid 15 min.`;
 }
 
@@ -139,7 +139,7 @@ async function onCallback(q) {
       return say(chat, c.status === 'open'
         ? `${who(q.from)} copied ${t.symbol} ${sideWord(t)}: ${qty(c.size)} filled (asked $${b}). Exit: ${c.exitMode === 'ask' ? 'ask me' : 'with the lead'}. ` +
           (c.stop?.status === 'untriggered'
-            ? `Stop at ${c.stop.price} (${c.stop.pct}% from entry ${c.stop.entry.toFixed(2)}): max loss ≈ ${usdOf(lossAtStop(c.size, c.stop.entry, c.stop.price))} if it fills at the stop.`
+            ? `Stop at ${c.stop.price} (${c.stop.pct}% from entry ${c.stop.entry.toFixed(2)}): ≈ ${usdOf(lossAtStop(c.size, c.stop.entry, c.stop.price))} at the stop price; fills can slip.`
             : `Stop NOT set yet (${c.stop?.error ?? c.stop?.reason ?? c.stop?.status}); Squad keeps retrying.`)
         : `${who(q.from)}: copy failed (${c.error ?? c.order?.reason ?? c.status}).`);
     }
