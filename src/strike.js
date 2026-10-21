@@ -36,11 +36,12 @@ export function signHeaders(key, method, pathWithQuery, bodyStr, ts, nonce = cry
   };
 }
 
-let skewMs = null; // server time minus local time
+let skewMs = null, skewAt = 0; // server time minus local time, re-measured every 10 min so clock drift can't expire signatures
+const TIMEOUT = () => AbortSignal.timeout(15000); // one hung socket must not stall the watcher or the bot
 async function serverSeconds() {
-  if (skewMs === null) {
-    const r = await (await fetch(`${API}/v2/time`)).json();
-    skewMs = Number(r.serverTime) - Date.now();
+  if (skewMs === null || Date.now() - skewAt > 10 * 60 * 1000) {
+    const r = await (await fetch(`${API}/v2/time`, { signal: TIMEOUT() })).json();
+    skewMs = Number(r.serverTime) - Date.now(); skewAt = Date.now();
   }
   return Math.floor((Date.now() + skewMs) / 1000) - 1; // server rejects timestamps even 1s ahead
 }
@@ -50,7 +51,7 @@ export async function call(key, method, path, body, { builderFeeBps } = {}) {
   const headers = signHeaders(key, method, path, bodyStr, await serverSeconds());
   if (bodyStr !== undefined) headers['Content-Type'] = 'application/json';
   if (builderFeeBps !== undefined) headers['X-Builder-Fee-Bps'] = String(builderFeeBps);
-  const res = await fetch(API + path, { method, headers, body: bodyStr });
+  const res = await fetch(API + path, { method, headers, body: bodyStr, signal: TIMEOUT() });
   const text = await res.text();
   let data; try { data = JSON.parse(text); } catch { data = text; }
   if (!res.ok) throw Object.assign(new Error(`${method} ${path} -> ${res.status} ${text.slice(0, 200)}`), { status: res.status, data });
@@ -58,13 +59,13 @@ export async function call(key, method, path, body, { builderFeeBps } = {}) {
 }
 
 export async function publicGet(path) {
-  const res = await fetch(API + path);
+  const res = await fetch(API + path, { signal: TIMEOUT() });
   if (!res.ok) throw new Error(`GET ${path} -> ${res.status} ${(await res.text()).slice(0, 200)}`);
   return res.json();
 }
 
 async function post(path, body) {
-  const res = await fetch(API + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await fetch(API + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: TIMEOUT() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`POST ${path} -> ${res.status} ${JSON.stringify(data).slice(0, 200)}`);
   return data;
