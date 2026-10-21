@@ -28,6 +28,8 @@ async function post(path, body) {
 }
 
 async function connect(id) {
+  const buttons = [...document.querySelectorAll('#wallets button')];
+  buttons.forEach((b) => (b.disabled = true)); // one challenge at a time
   try {
     say('Waiting for your wallet…');
     const api = await window.cardano[id].enable();
@@ -40,18 +42,23 @@ async function connect(id) {
     const done = await post('/api/connect/finish', { t: token, signature: `${signature}:${key}` });
     say(`Connected as ${done.label}. Strike account ${done.accountId}. You can close this tab and go back to Telegram.`, 'ok');
     $('wallets').innerHTML = '';
-  } catch (e) { say(e.message || String(e), 'err'); }
+  } catch (e) { say(e.message || String(e), 'err'); buttons.forEach((b) => (b.disabled = false)); }
 }
 
 if (!token) say('This link is missing its token. Ask the bot for a new one.', 'err');
-else setTimeout(() => {
-  const ids = Object.keys(window.cardano || {}).filter(k => window.cardano[k]?.enable);
-  if (!ids.length) return say('No Cardano wallet found. Install Lace or Eternl, then reload.', 'err');
-  for (const id of ids) {
-    const b = document.createElement('button'); b.textContent = window.cardano[id].name || id; b.onclick = () => connect(id);
-    $('wallets').append(b);
-  }
-  say('Pick your wallet.');
-}, 300); // wallets inject window.cardano shortly after load
+else {
+  // Wallet extensions inject window.cardano some time after load; look for up to 3 seconds.
+  let tries = 0;
+  const look = () => {
+    const ids = Object.keys(window.cardano || {}).filter(k => window.cardano[k]?.enable);
+    if (!ids.length) return ++tries < 15 ? setTimeout(look, 200) : say('No Cardano wallet found. Install Lace or Eternl, then reload.', 'err');
+    for (const id of ids) {
+      const b = document.createElement('button'); b.textContent = window.cardano[id].name || id; b.onclick = () => connect(id);
+      $('wallets').append(b);
+    }
+    say('Pick your wallet.');
+  };
+  look();
+}
 </script>
 </body></html>

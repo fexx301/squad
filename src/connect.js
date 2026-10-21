@@ -35,7 +35,9 @@ export async function finish(token, walletSignature) {
   if (!link.nonce) throw new Error('start the connection first');
   const v = await verifySignature({ nonce: link.nonce, walletSignature });
   link.used = true;
+  // Reconnecting keeps the member's settings (/exits, /stop); the new key replaces the old one, which Strike revokes.
   get().members[link.memberId] = {
+    ...get().members[link.memberId], needsReconnect: false,
     label: link.label, address: link.address, accountId: v.account_id, apiSeed: link.apiSeed,
     feeBps: v.fee_share_bps, expiresAt: v.api_wallet_expired_at, connectedAt: Date.now(),
   };

@@ -11,7 +11,9 @@ async function readJson(req) {
   let s = ''; for await (const c of req) { s += c; if (s.length > 1e5) throw new Error('body too large'); }
   return JSON.parse(s || '{}');
 }
-const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
+// The page carries a one-time token in its URL: no caching, no referrer, no framing.
+const SECURITY = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' };
+const send = (res, code, obj) => { res.writeHead(code, { ...SECURITY, 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
 
 export function serve({ onConnected = () => {} } = {}) {
   const page = fs.readFileSync(new URL('../public/connect.html', import.meta.url));
@@ -21,9 +23,9 @@ export function serve({ onConnected = () => {} } = {}) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, baseUrl);
     try {
-      if (req.method === 'GET' && url.pathname === '/connect') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end(page); }
+      if (req.method === 'GET' && url.pathname === '/connect') { res.writeHead(200, { ...SECURITY, 'Content-Type': 'text/html' }); return res.end(page); }
       const f = req.method === 'GET' && files[url.pathname];
-      if (f) { res.writeHead(200, { 'Content-Type': f.type, 'Cache-Control': 'public, max-age=3600' }); return res.end(f.body); }
+      if (f) { res.writeHead(200, { 'Content-Type': f.type, 'Cache-Control': 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff' }); return res.end(f.body); }
       if (req.method === 'POST' && url.pathname === '/api/connect/start') { const b = await readJson(req); return send(res, 200, await start(b.t, b.address)); }
       if (req.method === 'POST' && url.pathname === '/api/connect/finish') {
         const b = await readJson(req); const done = await finish(b.t, b.signature); onConnected(done); return send(res, 200, done);
