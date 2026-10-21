@@ -15,13 +15,15 @@ const who = (u) => (u.username ? `@${u.username}` : u.first_name);
 const SYMBOLS = (process.env.MAKER_SYMBOLS ?? 'ETH-USD').split(',').map((s) => s.trim().replace('-USD', '')); // only markets with liquidity
 const COPY_SIZES = [25, 50, 100];
 const usdOf = (n) => `$${Number(n).toFixed(2)}`;
+const qty = (x) => String(Number(x)); // engine sends 18-decimal strings
 
+// Strike validates the builder header on submit (400 if over the cap), but filled orders read back without
+// their Builder field, so the card states the code the order was sent with.
 function card(t, lead) {
-  const b = t.order.builder;
   return `${lead} opened ${t.side === 'buy' ? 'LONG' : 'SHORT'} ${t.symbol}\n` +
-    `size ${t.size} (~${usdOf(Number(t.size) * t.markAtOpen)} at ${t.markAtOpen})\n` +
-    `Strike order #${t.order.orderId}${b ? ` · builder ${b.Code} ${b.FeeBps} bps` : ''}\n` +
-    `Copy this one trade at your size. Card valid 15 min.`;
+    `${qty(t.size)} ${t.symbol.replace('-USD', '')} · ~${usdOf(Number(t.size) * t.markAtOpen)} at ${Number(t.markAtOpen).toFixed(2)}\n` +
+    `Strike order #${t.order.orderId} · builder ${process.env.BUILDER_CODE} (${process.env.BUILDER_FEE_BPS ?? 10} bps)\n` +
+    `Copy this one trade at your own size. Card valid 15 min.`;
 }
 
 async function onCommand(msg) {
@@ -53,11 +55,11 @@ async function onCommand(msg) {
     const r = await closeLead(mine[0].id, user.id);
     const lines = r.copies.map((c) => {
       const name = get().members[c.copierId]?.label ?? c.copierId;
-      if (c.status === 'closed') return `${name}: copy closed (${c.close?.filled ?? c.size})`;
+      if (c.status === 'closed') return `${name}: copy closed (${qty(c.close?.filled ?? c.size)})`;
       if (c.status === 'awaiting') return `${name}: waiting for your OK`;
       return `${name}: ${c.status}${c.error ? ` (${c.error})` : ''}`;
     });
-    await say(chat, `${who(user)} closed ${r.trade.symbol} (${r.trade.close.filled} filled).${lines.length ? '\n' + lines.join('\n') : ''}`);
+    await say(chat, `${who(user)} closed ${r.trade.symbol} (${qty(r.trade.close.filled)} filled).${lines.length ? '\n' + lines.join('\n') : ''}`);
     for (const c of r.copies.filter((c) => c.status === 'awaiting')) {
       await say(c.copierId, `${who(user)} closed ${r.trade.symbol}. Close your copy too?`, [[{ text: 'Close my copy', callback_data: `close:${c.k}` }, { text: 'Keep it', callback_data: `keep:${c.k}` }]])
         .catch(() => say(chat, `${get().members[c.copierId]?.label}: DM me /start so I can ask you privately.`));
@@ -74,7 +76,7 @@ async function onCallback(q) {
       const c = await copyTrade(a, q.from.id, Number(b), get().members[String(q.from.id)]?.exitMode);
       const t = get().trades[a];
       return say(q.message.chat.id, c.status === 'open'
-        ? `${who(q.from)} copied ${t.symbol} ${t.side === 'buy' ? 'long' : 'short'}: ${c.size} filled (asked $${b}). Exit: ${c.exitMode === 'ask' ? 'ask me' : 'with the lead'}.`
+        ? `${who(q.from)} copied ${t.symbol} ${t.side === 'buy' ? 'long' : 'short'}: ${qty(c.size)} filled (asked $${b}). Exit: ${c.exitMode === 'ask' ? 'ask me' : 'with the lead'}.`
         : `${who(q.from)}: copy failed (${c.error ?? c.order?.reason ?? c.status}).`);
     }
     if (action === 'close' || action === 'keep') {
