@@ -96,6 +96,8 @@ async function onCallback(q) {
       return answer(r.status === 'closed' ? 'Copy closed.' : `Close did not fill (${r.close?.reason ?? r.status}).`);
     }
   } catch (e) {
+    // A callback can be answered only once; the copy path already answered "Copying…", so refusals go to the chat.
+    if (action === 'copy') return say(q.message.chat.id, `${who(q.from)}: copy refused (${e.message}).`).catch(() => {});
     return answer(e.message).catch(() => {});
   }
 }
