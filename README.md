@@ -7,7 +7,7 @@
 
 # Squad — copy a trade, not a trader
 
-Squad lets a Telegram group trade [Strike](https://strikefinance.org) perps together. When a member opens a position from the chat, a card posts to the group. Anyone in the group can copy **that one trade** at their own size with one tap. When the original trader exits, copies close with them (or ask first), and every copy carries its own stop-loss.
+Squad lets a Telegram group trade [Strike](https://strikefinance.org) perps together. When a member opens a position from the chat, a card posts to the group. Anyone in the group can copy **that one trade** at their own size with one tap. When the original trader exits, copies close with them (or ask first), and Squad places a stop-loss on every copy.
 
 Built for the Strike Hackathon (Oct 21–23, 2026). Runs on Strike **testnet**.
 
@@ -40,19 +40,21 @@ Prior art: [pvp.trade](https://docs.pvp.trade) built group trading in Telegram o
 | Where | Command | What it does |
 |---|---|---|
 | DM | `/connect` | One-time link (30 min) to sign with your Cardano wallet |
-| Group | `/long ETH 25`, `/short ETH 25` | Open a position worth ~$25 and post a copy card |
+| Group | `/long ETH 25`, `/short ETH 25` | Open a position worth ~$25 (up to $500) and post a copy card |
 | Group | `/close` | Close your latest Squad trade; copies close or are asked |
 | Any | `/exits follow` \| `/exits ask` | Copies close with the lead, or you get a Close/Keep prompt |
-| Any | `/stop 3` | Stop-loss distance for your copies, % from your entry (1–10) |
+| Any | `/stop 3` | Stop-loss distance for your copies, % from your entry (0.5–10) |
 
 Card buttons: **Copy $25 / $50 / $100**.
 
-## Safety rules (enforced in code, unit-tested)
+## Safety rules (enforced in code)
 
-- One tap = one copy. The copy record is written before the order, so a double tap cannot double-place.
-- A card older than 15 minutes, or for a trade the lead already closed, cannot be copied.
-- Strike positions are one-way net per market, so a copy is refused if you already hold that market. Squad can then close exactly what it opened.
-- Closes are reduce-only, for `min(copied fill, live position)`, so they can never flip a position or touch unrelated size.
+- One tap = one copy. The copy record is written before the order, so a double tap cannot double-place. *(unit-tested)*
+- A card older than 15 minutes, or for a trade the lead already closed, cannot be copied. *(unit-tested)*
+- Strike positions are one-way net per market, so a trade or a copy is refused if that account already holds the market. Squad can then close exactly what it opened.
+- Closes are reduce-only, for `min(copied fill, live position)`, so they can never flip a position or touch unrelated size. A close claims the copy first, so two taps cannot close it twice.
+- Every copy gets a reduce-only stop on the losing side of the entry *(unit-tested)*. If placing it fails, the copy message says so and Squad retries every 30 seconds.
+- Trade commands work only in groups, and one trade is capped at $500 notional.
 - Trust model: the server holds each member's Builder Connect API-wallet key. That key can place trades, but withdrawals are locked by Strike to the wallet that signed in. Copy sizes and stops are enforced by Squad, not by the wallet.
 
 ## Testnet notes (disclosed)
@@ -66,7 +68,7 @@ Node 24, no dependencies.
 
 ```bash
 cp .env.example .env   # add TELEGRAM_BOT_TOKEN and BUILDER_CODE
-npm test               # 10 unit tests
+npm test               # 16 unit tests
 npm start              # bot + connect page (localhost:8787) + testnet Maker
 ```
 
