@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/squad-logo-white.svg">
+    <img src="public/squad-logo.svg" alt="Squad" width="320">
+  </picture>
+</p>
+
 # Squad — copy a trade, not a trader
 
 Squad lets a Telegram group trade [Strike](https://strikefinance.org) perps together. When a member opens a position from the chat, a card posts to the group. Anyone in the group can copy **that one trade** at their own size with one tap. When the original trader exits, copies close with them (or ask first), and every copy carries its own stop-loss.

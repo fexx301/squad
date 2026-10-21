@@ -15,12 +15,15 @@ const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'applic
 
 export function serve({ onConnected = () => {} } = {}) {
   const page = fs.readFileSync(new URL('../public/connect.html', import.meta.url));
-  const bech32js = fs.readFileSync(new URL('../public/bech32.js', import.meta.url));
+  // Static files the page needs; anything else is a 404.
+  const files = Object.fromEntries([['/bech32.js', 'text/javascript'], ['/squad-logo-white.svg', 'image/svg+xml'], ['/favicon.svg', 'image/svg+xml']]
+    .map(([path, type]) => [path, { type, body: fs.readFileSync(new URL(`../public${path}`, import.meta.url)) }]));
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, baseUrl);
     try {
       if (req.method === 'GET' && url.pathname === '/connect') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end(page); }
-      if (req.method === 'GET' && url.pathname === '/bech32.js') { res.writeHead(200, { 'Content-Type': 'text/javascript' }); return res.end(bech32js); }
+      const f = req.method === 'GET' && files[url.pathname];
+      if (f) { res.writeHead(200, { 'Content-Type': f.type, 'Cache-Control': 'public, max-age=3600' }); return res.end(f.body); }
       if (req.method === 'POST' && url.pathname === '/api/connect/start') { const b = await readJson(req); return send(res, 200, await start(b.t, b.address)); }
       if (req.method === 'POST' && url.pathname === '/api/connect/finish') {
         const b = await readJson(req); const done = await finish(b.t, b.signature); onConnected(done); return send(res, 200, done);
