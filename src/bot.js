@@ -146,12 +146,13 @@ async function onCallback(q) {
 }
 
 export async function poll() {
-  let offset = 0;
+  // The offset is persisted so a restart (crash, reboot, deploy) never re-handles a /long or a Copy tap.
+  let offset = get().tgOffset ?? 0;
   for (;;) {
     try {
       const updates = await tg('getUpdates', { offset, timeout: 25, allowed_updates: ['message', 'callback_query'] });
+      if (updates.length) { get().tgOffset = offset = updates.at(-1).update_id + 1; save(); }
       for (const u of updates) {
-        offset = u.update_id + 1;
         if (u.message?.text?.startsWith('/')) onCommand(u.message).catch((e) => say(u.message.chat.id, `Error: ${e.message}`).catch(() => {}));
         else if (u.callback_query) onCallback(u.callback_query);
       }
