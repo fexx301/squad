@@ -46,3 +46,21 @@ test('max loss at the stop and Strike P&L summing', async () => {
   const s = sumFills([{ realized_pnl: '0', fee: '0.0125' }, { realized_pnl: '-0.75', fee: '0.0121' }]);
   assert.ok(Math.abs(s.realized + 0.75) < 1e-9 && Math.abs(s.fees - 0.0246) < 1e-9);
 });
+
+test('a stop must sit on the losing side of the entry', async () => {
+  const { protects, stopPrice } = await import('../src/copy.js');
+  assert.equal(protects('buy', 2499.59, '2424.60'), true);
+  assert.equal(protects('sell', 2499.59, '2574.58'), true);
+  assert.equal(protects('buy', 100, stopPrice('buy', 100, 0.5, '1')), false); // coarse tick rounds a 0.5% stop onto the entry
+});
+
+test('a failed copy can be retried, bad amounts are refused before anything is recorded', async () => {
+  const { get } = await import('../src/store.js');
+  const { copyTrade } = await import('../src/copy.js');
+  const db = get();
+  db.trades.t2 = { id: 't2', leadId: '1', symbol: 'ETH-USD', side: 'buy', size: '0.01', openedAt: Date.now(), status: 'open' };
+  db.copies['t2:5'] = { status: 'failed' };
+  await assert.rejects(copyTrade('t2', '5', 25), /not connected/); // got past "already copied": retry allowed
+  for (const bad of [NaN, Infinity, -5, 0]) await assert.rejects(copyTrade('t2', '6', bad), /positive number/);
+  assert.equal(db.copies['t2:6'], undefined);
+});

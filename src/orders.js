@@ -1,6 +1,6 @@
 // Order placement and confirmation. Writes are async on Strike: 201 means "accepted", so we poll the order.
 import crypto from 'node:crypto';
-import { call } from './strike.js';
+import { call, publicGet } from './strike.js';
 
 const WORKING = new Set(['pending', 'open', 'untriggered']);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -55,3 +55,6 @@ export const getOrder = (key, symbol, clientOrderId) => call(key, 'GET', `/v2/or
 export async function fillsSince(key, symbol, sinceMs) {
   return (await call(key, 'GET', `/v2/history/fill?symbol=${symbol}&startTime=${Math.floor(sinceMs)}&limit=200`)).fills ?? [];
 }
+
+// Positions are public by account id, so watching for exits needs no member key (a revoked key cannot blind it).
+export const publicPositions = async (accountId) => (await publicGet(`/v2/positions?account_id=${accountId}`)).positions ?? [];
