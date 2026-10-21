@@ -29,3 +29,22 @@ export async function position(key, symbol) {
   const r = await positions(key);
   return (r.positions ?? []).find((p) => p.symbol === symbol) ?? null;
 }
+
+// Conditional orders stay 'untriggered' while armed, so wait only until the order leaves 'pending'.
+export async function armed(key, symbol, clientOrderId, timeoutMs = 8000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    try {
+      const o = await call(key, 'GET', `/v2/order?symbol=${symbol}&client_order_id=${clientOrderId}`);
+      if (o.Status !== 'pending') return o;
+    } catch (e) { if (e.status !== 404) throw e; }
+    await sleep(500);
+  }
+  throw new Error(`order ${clientOrderId} still pending after ${timeoutMs}ms`);
+}
+
+// Volume-weighted fill price of one order.
+export async function fillPrice(key, symbol, orderId) {
+  const f = (await call(key, 'GET', `/v2/history/fill?symbol=${symbol}&order_id=${orderId}&aggregate=true`)).fills ?? [];
+  return f.length ? Number(f[0].price) : null;
+}

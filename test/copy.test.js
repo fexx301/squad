@@ -24,3 +24,9 @@ test('copy guards reject before any order is placed', async () => {
   await assert.rejects(copyTrade('t1', '3', 50), /not connected/);
   assert.equal(db.copies['t1:3'], undefined); // unconnected member leaves no copy record
 });
+
+test('stop sits against the copier: below entry for longs, above for shorts, on tick', async () => {
+  const { stopPrice } = await import('../src/copy.js');
+  assert.equal(stopPrice('buy', 2498.2, 3, '0.01'), '2423.25');
+  assert.equal(stopPrice('sell', 2498.2, 3, '0.01'), '2573.15');
+});

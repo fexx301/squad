@@ -30,7 +30,7 @@ async function onCommand(msg) {
   const chat = msg.chat.id, user = msg.from, text = msg.text.trim();
   const [cmd, ...args] = text.split(/\s+/);
   const c = cmd.replace(/@\w+$/, '').toLowerCase();
-  if (c === '/start') return say(chat, 'Squad lets this group trade Strike perps together.\n/connect (in DM) links your Strike testnet wallet.\nIn the group: /long ETH 50, /short ETH 25, /close, /exits follow|ask.');
+  if (c === '/start') return say(chat, 'Squad lets this group trade Strike perps together.\n/connect (in DM) links your Strike testnet wallet.\nIn the group: /long ETH 50, /short ETH 25, /close, /exits follow|ask, /stop 3.');
   if (c === '/connect') {
     if (msg.chat.type !== 'private') return say(chat, `${who(user)}, DM me /connect so your link stays private.`);
     return say(chat, `Open this on the computer with your Cardano wallet (valid 30 min, one use):\n${connectUrl(user.id, who(user))}`);
@@ -41,6 +41,14 @@ async function onCommand(msg) {
     if (!['follow', 'ask'].includes(args[0])) return say(chat, `Your copies currently ${m.exitMode === 'ask' ? 'ask before closing' : 'close when the lead closes'}. Use /exits follow or /exits ask.`);
     m.exitMode = args[0]; save();
     return say(chat, args[0] === 'follow' ? 'Your copies will close when the lead closes.' : 'You will be asked before your copies close.');
+  }
+  if (c === '/stop') {
+    const m = get().members[String(user.id)];
+    if (!m) return say(chat, 'Connect first: DM me /connect');
+    const pct = Number(args[0]);
+    if (!(pct >= 1 && pct <= 10)) return say(chat, `Your copies get a stop ${m.stopPct ?? process.env.COPY_STOP_PCT ?? 3}% from entry. Use /stop 2 (1–10).`);
+    m.stopPct = pct; save();
+    return say(chat, `New copies get a stop ${pct}% from your entry.`);
   }
   if (c === '/long' || c === '/short') {
     const sym = (args[0] ?? '').toUpperCase(), usd = Number(args[1]);
@@ -76,7 +84,8 @@ async function onCallback(q) {
       const c = await copyTrade(a, q.from.id, Number(b), get().members[String(q.from.id)]?.exitMode);
       const t = get().trades[a];
       return say(q.message.chat.id, c.status === 'open'
-        ? `${who(q.from)} copied ${t.symbol} ${t.side === 'buy' ? 'long' : 'short'}: ${qty(c.size)} filled (asked $${b}). Exit: ${c.exitMode === 'ask' ? 'ask me' : 'with the lead'}.`
+        ? `${who(q.from)} copied ${t.symbol} ${t.side === 'buy' ? 'long' : 'short'}: ${qty(c.size)} filled (asked $${b}). Exit: ${c.exitMode === 'ask' ? 'ask me' : 'with the lead'}. ` +
+          (c.stop?.status === 'untriggered' ? `Stop at ${c.stop.price} (${c.stop.pct}% from entry ${c.stop.entry.toFixed(2)}).` : `Stop NOT set (${c.stop?.error ?? c.stop?.reason ?? c.stop?.status}).`)
         : `${who(q.from)}: copy failed (${c.error ?? c.order?.reason ?? c.status}).`);
     }
     if (action === 'close' || action === 'keep') {

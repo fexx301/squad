@@ -3,14 +3,30 @@
 // already holds that market, and closes are reduce-only for the recorded filled size only.
 import crypto from 'node:crypto';
 import { keyFromSeed } from './strike.js';
-import { place, settle, position } from './orders.js';
-import { rules, mark, floorTo } from './market.js';
+import { place, settle, position, armed, fillPrice } from './orders.js';
+import { rules, mark, floorTo, roundTo } from './market.js';
 import { get, save } from './store.js';
 
 const CARD_TTL_MS = 15 * 60 * 1000;
 const fee = () => Number(process.env.BUILDER_FEE_BPS ?? 10);
 const keyOf = (m) => keyFromSeed(m.apiSeed);
 const flip = (side) => (side === 'buy' ? 'sell' : 'buy');
+const DEFAULT_STOP_PCT = () => Number(process.env.COPY_STOP_PCT ?? 3);
+
+// Stop trigger pct against the copier's entry: below it for longs, above it for shorts.
+export const stopPrice = (side, entry, pct, tick) => roundTo(entry * (side === 'buy' ? 1 - pct / 100 : 1 + pct / 100), tick);
+
+// Each copy gets its own reduce-only stop, so an unattended copy is protected even if Squad is offline.
+// Strike cancels reduce-only orders when the position closes, so follow/ask closes need no cleanup.
+async function protect(copier, t, c) {
+  const key = keyOf(copier), r = await rules(t.symbol);
+  const pct = copier.stopPct ?? DEFAULT_STOP_PCT();
+  const entry = (await fillPrice(key, t.symbol, c.order.orderId)) ?? (await mark(t.symbol));
+  const sp = stopPrice(t.side, entry, pct, r.tick);
+  const cid = await place(key, { symbol: t.symbol, side: flip(t.side), type: 'stop', stop_price: sp, size: floorTo(Number(c.size), r.step), reduce_only: true }, { feeBps: fee() });
+  const o = await armed(key, t.symbol, cid);
+  return { cid, pct, entry, price: sp, status: o.Status, reason: o.CloseReason || undefined };
+}
 
 function member(id) {
   const m = get().members[String(id)];
@@ -63,6 +79,7 @@ export async function copyTrade(tradeId, copierId, usd, exitMode = process.env.E
     const { size } = await sizeFor(t.symbol, usd);
     const o = await marketOrder(copier, t.symbol, t.side, size);
     Object.assign(c, { status: Number(o.filled) > 0 ? 'open' : 'failed', size: o.filled, requested: size, order: o });
+    if (c.status === 'open') c.stop = await protect(copier, t, c).catch((e) => ({ error: e.message }));
   } catch (e) {
     Object.assign(c, { status: 'failed', error: e.message });
   }
