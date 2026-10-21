@@ -12,7 +12,7 @@ export async function tg(method, body) {
 }
 const say = (chat_id, text, buttons) => tg('sendMessage', { chat_id, text, ...(buttons && { reply_markup: { inline_keyboard: buttons } }) });
 const who = (u) => (u.username ? `@${u.username}` : u.first_name);
-const SYMBOLS = ['SOL', 'BTC', 'ETH', 'ADA'];
+const SYMBOLS = (process.env.MAKER_SYMBOLS ?? 'ETH-USD').split(',').map((s) => s.trim().replace('-USD', '')); // only markets with liquidity
 const COPY_SIZES = [25, 50, 100];
 const usdOf = (n) => `$${Number(n).toFixed(2)}`;
 
@@ -28,7 +28,7 @@ async function onCommand(msg) {
   const chat = msg.chat.id, user = msg.from, text = msg.text.trim();
   const [cmd, ...args] = text.split(/\s+/);
   const c = cmd.replace(/@\w+$/, '').toLowerCase();
-  if (c === '/start') return say(chat, 'Squad lets this group trade Strike perps together.\n/connect (in DM) links your Strike testnet wallet.\nIn the group: /long SOL 50, /short SOL 50, /close, /exits follow|ask.');
+  if (c === '/start') return say(chat, 'Squad lets this group trade Strike perps together.\n/connect (in DM) links your Strike testnet wallet.\nIn the group: /long ETH 50, /short ETH 25, /close, /exits follow|ask.');
   if (c === '/connect') {
     if (msg.chat.type !== 'private') return say(chat, `${who(user)}, DM me /connect so your link stays private.`);
     return say(chat, `Open this on the computer with your Cardano wallet (valid 30 min, one use):\n${connectUrl(user.id, who(user))}`);
@@ -42,7 +42,7 @@ async function onCommand(msg) {
   }
   if (c === '/long' || c === '/short') {
     const sym = (args[0] ?? '').toUpperCase(), usd = Number(args[1]);
-    if (!SYMBOLS.includes(sym) || !(usd > 0)) return say(chat, `Usage: ${c} SOL 50  (markets: ${SYMBOLS.join(', ')}; amount in USD notional)`);
+    if (!SYMBOLS.includes(sym) || !(usd > 0)) return say(chat, `Usage: ${c} ETH 50  (markets: ${SYMBOLS.join(', ')}; amount in USD notional)`);
     const r = await openLead(user.id, `${sym}-USD`, c === '/long' ? 'buy' : 'sell', usd);
     if (!r.ok) return say(chat, `${who(user)}: order not filled (${r.order.status}${r.order.reason ? `: ${r.order.reason}` : ''}).`);
     return say(chat, card(r.trade, who(user)), [COPY_SIZES.map((n) => ({ text: `Copy $${n}`, callback_data: `copy:${r.trade.id}:${n}` }))]);

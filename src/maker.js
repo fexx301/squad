@@ -20,8 +20,11 @@ export async function runMaker(key, symbol, { everyMs = 4000, moveBps = 5, log =
       if (Math.abs(m - last) / m * 1e4 >= moveBps) {
         // orders/replace cancels every resting order on the symbol, then places these (one engine command).
         await call(key, 'POST', '/v2/orders/replace', { symbol, orders: quotes(m, r) });
-        last = m;
-        log(`maker ${symbol} mark ${m} quotes ±0.2%`);
+        await new Promise((res) => setTimeout(res, 1500));
+        // Writes are async: confirm both quotes rest (a post-only cross rejects one and skips the rest).
+        const resting = (await call(key, 'GET', `/v2/openOrders?symbol=${symbol}`)).count ?? 0;
+        if (resting >= 2) { last = m; log(`maker ${symbol} mark ${m}: 2 quotes resting ±0.2%`); }
+        else log(`maker ${symbol}: only ${resting} quote(s) resting; will retry`);
       }
     } catch (e) { log(`maker error: ${e.message}`); }
     await new Promise((res) => setTimeout(res, everyMs));

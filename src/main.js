@@ -6,9 +6,11 @@ const { get } = await import('./store.js');
 const { keyFromSeed } = await import('./strike.js');
 const { runMaker } = await import('./maker.js');
 
+process.env.MAKER_SYMBOLS ??= 'ETH-USD'; // testnet ADA has order_min_price 10 (mark ~0.23), so ADA orders are rejected
 for (const k of ['TELEGRAM_BOT_TOKEN', 'BUILDER_CODE']) if (!process.env[k]) { console.error(`Set ${k} in .env`); process.exit(1); }
 
-const startMaker = () => runMaker(keyFromSeed(get().members.maker.apiSeed), process.env.MAKER_SYMBOL ?? 'SOL-USD');
+// Testnet books where stale quotes sit below the mark (SOL, BTC) would cross our post-only bid, so quote ETH/ADA.
+const startMaker = () => process.env.MAKER_SYMBOLS.split(',').forEach((s) => runMaker(keyFromSeed(get().members.maker.apiSeed), s.trim()));
 serve({ onConnected: (d) => {
   console.log('connected:', d);
   if (d.memberId === 'maker') return startMaker();
