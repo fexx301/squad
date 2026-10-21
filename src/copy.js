@@ -3,7 +3,7 @@
 // already holds that market, and closes are reduce-only for the recorded filled size only.
 import crypto from 'node:crypto';
 import { keyFromSeed } from './strike.js';
-import { place, settle, position, armed, fillPrice } from './orders.js';
+import { place, settle, position, armed, fillPrice, getOrder, fillsSince } from './orders.js';
 import { rules, mark, floorTo, roundTo } from './market.js';
 import { get, save } from './store.js';
 
@@ -15,6 +15,12 @@ const DEFAULT_STOP_PCT = () => Number(process.env.COPY_STOP_PCT ?? 3);
 
 // Stop trigger pct against the copier's entry: below it for longs, above it for shorts.
 export const stopPrice = (side, entry, pct, tick) => roundTo(entry * (side === 'buy' ? 1 - pct / 100 : 1 + pct / 100), tick);
+// Price loss if the stop fills exactly at its trigger (fees and slippage extra).
+export const lossAtStop = (size, entry, stop) => Math.abs(entry - Number(stop)) * Number(size);
+// Does a signed one-way position still hold the trade's direction?
+export const stillIn = (side, signedSize) => (side === 'buy' ? signedSize > 0 : signedSize < 0);
+// Strike's realized P&L excludes fees; we report it as Strike states it.
+export const sumFills = (fills) => fills.reduce((a, f) => ({ realized: a.realized + Number(f.realized_pnl), fees: a.fees + Number(f.fee) }), { realized: 0, fees: 0 });
 
 // Each copy gets its own reduce-only stop, so an unattended copy is protected even if Squad is offline.
 // Strike cancels reduce-only orders when the position closes, so follow/ask closes need no cleanup.
@@ -95,13 +101,76 @@ export async function closeCopy(k) {
   const held = await position(keyOf(copier), t.symbol);
   const live = held ? Math.abs(Number(held.size)) : 0;
   const qty = Math.min(Number(c.size), live);
-  if (qty <= 0) { Object.assign(c, { status: 'closed', closeNote: 'no position left to close' }); save(); return c; }
+  if (qty <= 0) return classifyFlat(c, t, copier);
   c.status = 'closing'; save();
   const r = await rules(t.symbol);
   const o = await marketOrder(copier, t.symbol, flip(t.side), floorTo(qty, r.step), { reduceOnly: true });
-  Object.assign(c, { status: Number(o.filled) > 0 ? 'closed' : 'open', close: o });
+  Object.assign(c, Number(o.filled) > 0 ? { status: 'closed', close: o, endedAt: Date.now() } : { status: 'open', close: o });
   save();
   return c;
+}
+
+// The copy's position is gone and Squad did not close it: its stop fired, or the copier closed it elsewhere.
+async function classifyFlat(c, t, copier) {
+  const key = keyOf(copier);
+  const s = c.stop?.cid ? await getOrder(key, t.symbol, c.stop.cid).catch(() => null) : null;
+  if (s && Number(s.Filled) > 0) Object.assign(c, { status: 'stopped', stopFillPrice: await fillPrice(key, t.symbol, s.ID).catch(() => null) });
+  else Object.assign(c, { status: 'closed', closeNote: 'closed outside Squad' });
+  c.endedAt = Date.now();
+  save();
+  return c;
+}
+
+// The lead is out: follow-mode copies close now; ask-mode copies wait for the copier's tap.
+async function exitCopies(tradeId) {
+  const results = [];
+  for (const [k, c] of Object.entries(get().copies)) {
+    if (c.tradeId !== tradeId || c.status !== 'open') continue;
+    if (c.exitMode === 'follow') results.push({ k, ...(await closeCopy(k).catch((e) => ({ ...c, status: 'close-failed', error: e.message }))) });
+    else { c.status = 'awaiting'; save(); results.push({ k, ...c }); }
+  }
+  return results;
+}
+
+// Exits made outside Squad (Strike app, the lead's own TP/SL, liquidation) and fired copy stops only show up on
+// Strike, so we poll positions. A lead that no longer holds the trade's direction has exited (partial cuts are not
+// mirrored). Statuses are re-checked after each await because /close and button taps run concurrently.
+export async function watchOnce() {
+  const events = [];
+  for (const t of Object.values(get().trades)) {
+    const lead = get().members[t.leadId];
+    if (t.status !== 'open' || !lead) continue;
+    const p = await position(keyOf(lead), t.symbol);
+    if (t.status !== 'open' || stillIn(t.side, Number(p?.size ?? 0))) continue;
+    Object.assign(t, { status: 'closed', closedAt: Date.now(), closedBy: 'outside' });
+    save();
+    events.push({ type: 'leadExited', trade: t, copies: await exitCopies(t.id) });
+  }
+  for (const [k, c] of Object.entries(get().copies)) {
+    const t = get().trades[c.tradeId], copier = get().members[c.copierId];
+    if ((c.status !== 'open' && c.status !== 'awaiting') || !t || !copier) continue;
+    const p = await position(keyOf(copier), t.symbol);
+    if (Number(p?.size ?? 0) !== 0 || (c.status !== 'open' && c.status !== 'awaiting')) continue;
+    events.push({ type: 'copyEnded', trade: t, copy: { k, ...(await classifyFlat(c, t, copier)) } });
+  }
+  return events;
+}
+
+// Realized P&L per Strike's fill history: the lead since the trade opened, a copy since it was placed.
+export async function copyPnl(k) {
+  const c = get().copies[k], t = get().trades[c.tradeId], m = get().members[c.copierId];
+  return sumFills(await fillsSince(keyOf(m), t.symbol, c.at));
+}
+
+export async function recap(tradeId) {
+  const t = get().trades[tradeId], lead = get().members[t.leadId];
+  const rows = [{ who: lead?.label ?? t.leadId, status: t.status, ...sumFills(await fillsSince(keyOf(lead), t.symbol, t.openedAt - 10000)) }];
+  for (const [k, c] of Object.entries(get().copies)) {
+    if (c.tradeId !== tradeId || c.status === 'failed' || c.status === 'placing') continue;
+    const who = get().members[c.copierId]?.label ?? c.copierId;
+    rows.push(['closed', 'stopped'].includes(c.status) ? { who, status: c.status, ...(await copyPnl(k)) } : { who, status: c.status });
+  }
+  return rows;
 }
 
 // Lead exits: close the lead, then follow-mode copies close; ask-mode copies wait for the copier's tap.
@@ -110,14 +179,9 @@ export async function closeLead(tradeId, leadId) {
   if (!t || t.leadId !== String(leadId)) throw new Error('not your trade');
   if (t.status !== 'open') throw new Error('already closed');
   t.status = 'closing'; save();
-  const o = await marketOrder(member(leadId), t.symbol, flip(t.side), t.size, { reduceOnly: true });
-  Object.assign(t, { status: 'closed', closedAt: Date.now(), close: o });
+  const o = await marketOrder(member(leadId), t.symbol, flip(t.side), t.size, { reduceOnly: true }).catch((e) => ({ reason: e.message }));
+  if (!(Number(o.filled) > 0)) { t.status = 'open'; save(); throw new Error(`your close did not fill (${o.reason || o.status}); try again`); }
+  Object.assign(t, { status: 'closed', closedAt: Date.now(), closedBy: 'squad', close: o });
   save();
-  const results = [];
-  for (const [k, c] of Object.entries(get().copies)) {
-    if (c.tradeId !== tradeId || c.status !== 'open') continue;
-    if (c.exitMode === 'follow') results.push({ k, ...(await closeCopy(k).catch((e) => ({ status: 'close-failed', error: e.message }))) });
-    else { c.status = 'awaiting'; save(); results.push({ k, ...c }); }
-  }
-  return { trade: t, copies: results };
+  return { trade: t, copies: await exitCopies(tradeId) };
 }

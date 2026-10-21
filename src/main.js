@@ -18,5 +18,15 @@ serve({ onConnected: (d) => {
 } });
 if (get().members.maker) startMaker();
 else console.log(`No Maker connected. Connect the Maker wallet here: ${connectUrl('maker', 'Maker')}`);
+// Watch Strike for exits made outside Squad and for fired copy stops, and announce them in the trade's group.
+const { watchOnce } = await import('./copy.js');
+const { announce } = await import('./bot.js');
+(async () => {
+  for (;;) {
+    try { for (const ev of await watchOnce()) await announce(ev).catch((e) => console.error('announce:', e.message)); }
+    catch (e) { console.error('watch:', e.message); }
+    await new Promise((r) => setTimeout(r, Number(process.env.WATCH_MS ?? 5000)));
+  }
+})();
 console.log('bot polling…');
 poll();

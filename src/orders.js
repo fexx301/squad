@@ -48,3 +48,10 @@ export async function fillPrice(key, symbol, orderId) {
   const f = (await call(key, 'GET', `/v2/history/fill?symbol=${symbol}&order_id=${orderId}&aggregate=true`)).fills ?? [];
   return f.length ? Number(f[0].price) : null;
 }
+
+export const getOrder = (key, symbol, clientOrderId) => call(key, 'GET', `/v2/order?symbol=${symbol}&client_order_id=${clientOrderId}`);
+
+// Fills on one symbol since a time (ms), newest first.
+export async function fillsSince(key, symbol, sinceMs) {
+  return (await call(key, 'GET', `/v2/history/fill?symbol=${symbol}&startTime=${Math.floor(sinceMs)}&limit=200`)).fills ?? [];
+}
