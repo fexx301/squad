@@ -12,8 +12,10 @@ export function createLink(memberId, label) {
   return token;
 }
 
+const TOKEN = /^[0-9a-f]{32}$/; // createLink issues 16 random bytes as hex
+
 function liveLink(token) {
-  const l = get().links[token];
+  const l = typeof token === 'string' && TOKEN.test(token) ? get().links[token] : undefined;
   if (!l || l.used || Date.now() - l.createdAt > LINK_TTL_MS) throw new Error('link expired or already used');
   return l;
 }
