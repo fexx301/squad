@@ -25,6 +25,7 @@ After=network-online.target
 Wants=network-online.target
 [Service]
 User=squad
+UMask=0077
 WorkingDirectory=/opt/squad/app
 ExecStart=/usr/local/bin/node src/main.js
 Restart=always
