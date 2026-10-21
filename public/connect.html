@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Squad · Connect wallet</title>
+<style>
+  body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem;background:#0f1115;color:#e8e8e8}
+  button{font:inherit;padding:.6rem 1rem;margin:.25rem .25rem 0 0;border-radius:.5rem;border:1px solid #3a3f4b;background:#1b1f27;color:inherit;cursor:pointer}
+  button:hover{border-color:#7aa2ff} .muted{color:#9aa0aa} .ok{color:#7ee2a8} .err{color:#ff8a8a} code{word-break:break-all}
+</style></head>
+<body>
+<h1>Connect to Squad</h1>
+<p class="muted">Sign once with your Cardano testnet wallet. Squad gets a trading key for your Strike testnet account. Withdrawals stay locked to your own wallet, and each trade includes a small builder fee.</p>
+<div id="wallets"></div>
+<p id="status" class="muted"></p>
+<script type="module">
+import { bech32 } from '/bech32.js';
+const $ = (id) => document.getElementById(id);
+const token = new URLSearchParams(location.search).get('t');
+const say = (msg, cls = 'muted') => { $('status').className = cls; $('status').textContent = msg; };
+
+const hexToBytes = (h) => h.match(/../g).map(x => parseInt(x, 16));
+const toHex = (s) => [...new TextEncoder().encode(s)].map(b => b.toString(16).padStart(2, '0')).join('');
+
+async function post(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j;
+}
+
+async function connect(id) {
+  try {
+    say('Waiting for your wallet…');
+    const api = await window.cardano[id].enable();
+    if ((await api.getNetworkId()) !== 0) throw new Error('Switch your wallet to a Cardano testnet (Preprod).');
+    const addrHex = await api.getChangeAddress();
+    const address = bech32('addr_test', hexToBytes(addrHex));
+    const { message } = await post('/api/connect/start', { t: token, address });
+    say('Approve the signature request in your wallet…');
+    const { signature, key } = await api.signData(addrHex, toHex(message));
+    const done = await post('/api/connect/finish', { t: token, signature: `${signature}:${key}` });
+    say(`Connected as ${done.label}. Strike account ${done.accountId}. You can close this tab and go back to Telegram.`, 'ok');
+    $('wallets').innerHTML = '';
+  } catch (e) { say(e.message || String(e), 'err'); }
+}
+
+if (!token) say('This link is missing its token. Ask the bot for a new one.', 'err');
+else setTimeout(() => {
+  const ids = Object.keys(window.cardano || {}).filter(k => window.cardano[k]?.enable);
+  if (!ids.length) return say('No Cardano wallet found. Install Lace or Eternl, then reload.', 'err');
+  for (const id of ids) {
+    const b = document.createElement('button'); b.textContent = window.cardano[id].name || id; b.onclick = () => connect(id);
+    $('wallets').append(b);
+  }
+  say('Pick your wallet.');
+}, 300); // wallets inject window.cardano shortly after load
+</script>
+</body></html>
