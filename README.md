@@ -11,6 +11,8 @@ Squad is a Telegram bot for trading groups on [Strike](https://strikefinance.org
 
 Built for the Strike Hackathon (Oct 21–23, 2026) on Strike **testnet**. Bot: [@strike_squad_bot](https://t.me/strike_squad_bot).
 
+**▶ [Watch the demo (1:38)](https://youtu.be/ANZfTLZHglA)**
+
 <p align="center"><img src="docs/demo-chat.png" alt="A real Squad run in Telegram: a lead's ETH long, a one-tap copy, the lead's exit in the Strike app, and both results" width="620"></p>
 
 *A real testnet run (Oct 22). Fexx opens a long from the chat and femi_copier copies it with one tap. Fexx then closes in the Strike app, and Squad closes the copy 4.0 s later (by Strike's own trade tape) and posts both results.*
